@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<title>BLE LED — керування</title>
+<style>
+  :root {
+    --bg: #121212;
+    --panel: #1a1a1a;
+    --surface: #2a2a2a;
+    --surface-hover: #353535;
+    --text: #e0e0e0;
+    --muted: #888;
+    --active: #4a9eff;
+    --active-text: #ffffff;
+  }
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100dvh; 
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    touch-action: manipulation; /* дозволяє пінч-зум і панорамування на мобільному */
+  }
+
+  .container {
+    width: 100%;
+    max-width: 700px;
+    height: 100%;
+    max-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: 2vh 3vw;
+    background: var(--panel);
+  }
+
+  @media (min-width: 720px) {
+    .container {
+      height: 96vh;
+      border-radius: 12px;
+      padding: 3vh 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+  }
+
+  h1 {
+    margin: 0 0 1vh;
+    font-size: clamp(16px, 3vh, 22px);
+    font-weight: 500;
+  }
+  
+  .status {
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 0.8vh 10px;
+    margin-bottom: 1.5vh;
+    font-size: clamp(11px, 1.8vh, 13px);
+    font-family: 'Consolas', monospace;
+    min-height: clamp(28px, 4.5vh, 38px);
+    display: flex;
+    align-items: center;
+    border: none;
+    flex-shrink: 0;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 1.5vh;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none; 
+    flex-shrink: 0;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  
+  .tab {
+    padding: 0.8vh 16px;
+    border-radius: 20px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: clamp(11px, 1.8vh, 13px);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    transition: transform 0.2s;
+  }
+  @media (hover: hover) {
+    .tab:hover:not(.active) { background: var(--surface-hover); }
+  }
+  .tab.active {
+    background: var(--active);
+    color: var(--active-text);
+  }
+
+  .row { 
+    display: flex; 
+    gap: 10px; 
+    margin-bottom: 2vh; 
+    flex-shrink: 0;
+  }
+  .btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface);
+    color: var(--text);
+    border: none;
+    border-radius: 6px;
+    padding: clamp(10px, 2vh, 14px) 10px;
+    font-size: clamp(12px, 2vh, 14px);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+    text-align: center;
+  }
+  @media (hover: hover) {
+    .btn:hover:not(.disabled) { background: var(--surface-hover); }
+  }
+  .btn:active:not(.disabled) { transform: translateY(1px); }
+  .btn.disabled {
+    color: var(--muted);
+    background: rgba(42, 42, 42, 0.4);
+    cursor: not-allowed;
+  }
+
+  .section { 
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1vh;
+  }
+  .section h2 {
+    font-size: clamp(11px, 1.8vh, 14px);
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 1vh;
+  }
+
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: clamp(4px, 1vw, 8px);
+    margin-bottom: 1vh;
+  }
+  .palette .sw {
+    aspect-ratio: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: transform 0.1s;
+    border: none;
+    forced-color-adjust: none;
+  }
+  .palette .sw:active { transform: scale(0.9); }
+  .palette .sw.disabled { cursor: not-allowed; opacity: 0.2; }
+
+  /* Власний колір як 8-а комірка палітри */
+  .palette .custom-color {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    border: 2px solid var(--surface-hover);
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
+  }
+  .palette .custom-color::-webkit-color-swatch { border-radius: 2px; }
+  .palette .custom-color::-moz-color-swatch { border-radius: 2px; }
+
+  input[type="color"] {
+    border: none;
+    outline: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    forced-color-adjust: none;
+  }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+  input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
+  input[type="color"]::-moz-color-swatch { border: none; border-radius: 6px; }
+  input[type="color"]:disabled { opacity: 0.2; cursor: not-allowed; }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .slider-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--active);
+  }
+  .num-input {
+    width: 55px;
+    background: var(--surface);
+    border: none;
+    color: var(--text);
+    border-radius: 4px;
+    padding: clamp(6px, 1vh, 8px) 4px;
+    text-align: center;
+    font-family: 'Consolas', monospace;
+    font-size: clamp(12px, 2vh, 14px);
+    outline: none;
+    -moz-appearance: textfield;
+  }
+  .num-input::-webkit-outer-spin-button,
+  .num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .num-input:focus { background: var(--surface-hover); }
+  .num-input:disabled, .slider-row input[type="range"]:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .effects-section {
+    flex: 1; 
+    display: flex;
+    flex-direction: column;
+    min-height: 0; 
+  }
+  .effects-container {
+    display: grid;
+    gap: 2vw; 
+    grid-template-columns: repeat(3, 1fr); 
+    flex: 1;
+  }
+  .effect-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1vh; 
+    justify-content: stretch;
+  }
+
+  .mode-btn {
+    background: var(--surface);
+    border: none;
+    color: var(--text);
+    padding: 0 5px; 
+    border-radius: 6px;
+    font-size: clamp(9px, 1.6vh, 13px); 
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.15s, opacity 0.15s;
+    flex: 1; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.2;
+    word-break: break-word; 
+  }
+  /* hover лише на пристроях зі справжнім курсором — щоб на тачі не «залипав» сірий фон */
+  @media (hover: hover) {
+    .mode-btn:hover:not(.disabled):not(.active) { background: var(--surface-hover); }
+  }
+  .mode-btn.active {
+    background: var(--active);
+    color: var(--active-text);
+  }
+  .mode-btn.disabled { opacity: 0.3; cursor: not-allowed; }
+
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>BLE LED — керування</h1>
+
+  <div id="status" class="status">Очікування... Натисни «Підключити стрічку».</div>
+
+  <div id="tabs" class="tabs">
+    <div class="tab active" data-id="all">Всі стрічки</div>
+  </div>
+
+  <div class="row">
+    <div class="btn" id="btnMainConn" tabindex="0">Підключити стрічку</div>
+    <div class="btn disabled" id="btnMainPwr" tabindex="0">Увімкнути</div>
+  </div>
+
+  <div class="section">
+    <h2>Колір</h2>
+    <div class="palette" id="palette"></div>
+    <input type="color" id="colorPicker" value="#ffffff" title="Власний колір" disabled hidden>
+  </div>
+
+  <div class="section" style="margin-bottom: 1.5vh;">
+    <h2>Яскравість (Крок 1%, ↑/↓)</h2>
+    <div class="slider-row">
+      <input type="range" id="brightRange" min="0" max="100" value="100" disabled aria-label="Яскравість">
+      <input type="number" id="brightInput" class="num-input" min="0" max="100" value="100" disabled aria-label="Яскравість у відсотках">
+      <span style="color:var(--muted); font-size:14px">%</span>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom: 1.5vh;">
+    <h2>Швидкість ефектів</h2>
+    <div class="slider-row">
+      <input type="range" id="speedRange" min="1" max="100" value="50" disabled aria-label="Швидкість ефектів">
+      <input type="number" id="speedInput" class="num-input" min="1" max="100" value="50" disabled aria-label="Швидкість ефектів у відсотках">
+      <span style="color:var(--muted); font-size:14px">%</span>
+    </div>
+  </div>
+
+  <div class="section effects-section">
+    <h2>Ефекти</h2>
+    <div class="effects-container">
+      
+      <!-- ПЕРШИЙ СТОВПЧИК -->
+      <div class="effect-col">
+        <div class="mode-btn disabled" data-mode="static">Статичне світіння</div>
+        <div class="mode-btn disabled" data-mode="ocean">Океан</div>
+        <div class="mode-btn disabled" data-mode="hue_drift">Повільний дрейф відтінку</div>
+        <div class="mode-btn disabled" data-mode="aurora">Аврора (полярне сяйво)</div>
+      </div>
+
+      <!-- ДРУГИЙ СТОВПЧИК -->
+      <div class="effect-col">
+        <div class="mode-btn disabled" data-mode="breathing">Дихання</div>
+        <div class="mode-btn disabled" data-mode="rainbow_fade">Плавна веселка</div>
+        <div class="mode-btn disabled" data-mode="rainbow_jump">Веселка Стрибок</div>
+        <div class="mode-btn disabled" data-mode="music" title="Системне аудіо">Світломузика</div>
+      </div>
+
+      <!-- ТРЕТІЙ СТОВПЧИК -->
+      <div class="effect-col">
+        <div class="mode-btn disabled" data-mode="rgb_jump">RGB Стрибок</div>
+        <div class="mode-btn disabled" data-mode="strobe">Стробоскоп</div>
+        <div class="mode-btn disabled" data-mode="police">Поліція</div>
+        <div class="mode-btn disabled" data-mode="fire">Вогонь</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const PROFILES = [
+  { name: 'ELK-BLEDOM',          svc: 0xFFF0, chr: 0xFFF3, proto: '7E' },
+  { name: 'ELK (FFF0/FFF4)',       svc: 0xFFF0, chr: 0xFFF4, proto: '7E' },
+  { name: 'LEDBLE/HappyLighting',  svc: 0xFFE5, chr: 0xFFE9, proto: '7E' },
+  { name: 'LEDBLE (FFE0/FFE1)',    svc: 0xFFE0, chr: 0xFFE1, proto: '7E' },
+  { name: 'Triones/Magic Home',    svc: 0xFFD5, chr: 0xFFD9, proto: '56' },
+];
+const SERVICE_UUIDS = [...new Set(PROFILES.map(p => p.svc))];
+
+const state = {
+  devices: [],      
+  activeTab: 'all', 
+  globalColor: '#ffffff',
+  globalBrightness: 100
+};
+
+// --- Аудіо (системний звук для світломузики) ---
+let audioCtx = null;
+let analyser = null;
+let freqData = null;    // частотний спектр (для реакції на ударні)
+let micStream = null;   // тримаємо посилання, щоб потік не «помер»
+let audioSource = null; // те саме для джерела звуку
+// Межі частотних смуг (обчислюються в initSystemAudio під реальну частоту дискретизації):
+let BASS_LO = 1, BASS_HI = 4;     // бас / бочка (≈30–170 Гц)
+let HIGH_LO = 43, HIGH_HI = 192;  // снейр / хет (≈2–9 кГц)
+// Стан нормалізації гучності для світломузики:
+let agcMax = 0.15;      // адаптивний максимум гучності (тихо=темно, гучно=яскраво)
+
+const $ = id => document.getElementById(id);
+const ui = {
+  status:      $('status'),
+  tabs:        $('tabs'),
+  btnConn:     $('btnMainConn'),
+  btnPwr:      $('btnMainPwr'),
+  colorPicker: $('colorPicker'),
+  brightRange: $('brightRange'),
+  brightInput: $('brightInput'),
+  speedRange:  $('speedRange'),
+  speedInput:  $('speedInput'),
+  palette:     $('palette'),
+};
+
+function setStatus(text) { ui.status.textContent = text; }
+
+// Безпечне екранування назв пристроїв (щоб дивні символи в імені не ламали розмітку)
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function bindBtn(el, handler) {
+  el.addEventListener('click', () => { if (!el.classList.contains('disabled')) handler(); });
+  el.addEventListener('keydown', e => {
+    if (!el.classList.contains('disabled') && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault(); handler();
+    }
+  });
+}
+
+function getTargetDevices() {
+  if (state.activeTab === 'all') return state.devices;
+  return state.devices.filter(d => d.id === state.activeTab);
+}
+
+const PALETTE_COLORS = [
+  { hex: '#ff0000', name: 'Червоний' },
+  { hex: '#ff7f00', name: 'Помаранчевий' },
+  { hex: '#ffff00', name: 'Жовтий' },
+  { hex: '#00ff00', name: 'Зелений' },
+  { hex: '#00c8ff', name: 'Блакитний' },
+  { hex: '#0000ff', name: 'Синій' },
+  { hex: '#7300d2', name: 'Фіолетовий' },
+];
+PALETTE_COLORS.forEach(({ hex, name }) => {
+  const sw = document.createElement('div');
+  sw.className = 'sw disabled';
+  sw.style.background = hex;
+  // Доступність: скрін-рідер озвучить назву кольору при наведенні/фокусі.
+  sw.title = name;
+  sw.setAttribute('role', 'button');
+  sw.setAttribute('aria-label', name);
+  sw.setAttribute('tabindex', '0');
+  const choose = () => {
+    if (sw.classList.contains('disabled')) return;
+    ui.colorPicker.value = hex;
+    applyColorToTargets(hex);
+  };
+  sw.addEventListener('click', choose);
+  sw.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); }
+  });
+  ui.palette.appendChild(sw);
+});
+
+// 8-а комірка палітри — «Власний колір» (перенесений сюди кольоровий інпут).
+ui.colorPicker.hidden = false;
+ui.colorPicker.classList.add('sw', 'custom-color', 'disabled');
+ui.colorPicker.setAttribute('aria-label', 'Власний колір');
+ui.colorPicker.title = 'Власний колір';
+ui.palette.appendChild(ui.colorPicker);
+
+function updateUI() {
+  const targets = getTargetDevices();
+  const hasTargets = targets.length > 0;
+
+  let tabsHtml = `<div class="tab ${state.activeTab === 'all' ? 'active' : ''}" data-id="all">Всі стрічки</div>`;
+  state.devices.forEach(d => {
+    tabsHtml += `<div class="tab ${state.activeTab === d.id ? 'active' : ''}" data-id="${esc(d.id)}">${esc(d.name)}</div>`;
+  });
+  ui.tabs.innerHTML = tabsHtml;
+
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      state.activeTab = t.dataset.id;
+      updateUI();
+    });
+  });
+
+  ui.btnConn.textContent = state.activeTab === 'all' ? 'Підключити стрічку' : "Від'єднатися";
+
+  if (!hasTargets) {
+    ui.btnPwr.textContent = 'Увімкнути';
+    ui.btnPwr.classList.add('disabled');
+    ui.colorPicker.disabled = true;
+    ui.brightRange.disabled = true;
+    ui.brightInput.disabled = true;
+    ui.speedRange.disabled = true;
+    ui.speedInput.disabled = true;
+    document.querySelectorAll('.palette .sw, .mode-btn').forEach(el => el.classList.add('disabled'));
+  } else {
+    ui.btnPwr.classList.remove('disabled');
+    ui.colorPicker.disabled = false;
+    ui.brightRange.disabled = false;
+    ui.brightInput.disabled = false;
+    ui.speedRange.disabled = false;
+    ui.speedInput.disabled = false;
+    document.querySelectorAll('.palette .sw, .mode-btn').forEach(el => el.classList.remove('disabled'));
+
+    const anyOff = targets.some(d => !d.isOn);
+    ui.btnPwr.textContent = anyOff ? 'Увімкнути' : 'Вимкнути';
+
+    let repColor = state.globalColor;
+    let repBright = state.globalBrightness;
+    let repMode = 'static';
+
+    if (state.activeTab !== 'all' && targets[0]) {
+      repColor = targets[0].color;
+      repBright = targets[0].brightness;
+      repMode = targets[0].mode;
+    } else if (targets.length > 0) {
+      const firstMode = targets[0].mode;
+      if (firstMode && targets.every(d => d.mode === firstMode)) repMode = firstMode;
+      else if (!targets.every(d => d.mode === 'static')) repMode = null;
+    }
+
+    ui.colorPicker.value = repColor;
+    ui.brightRange.value = repBright;
+    ui.brightInput.value = repBright;
+
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === repMode);
+    });
+  }
+}
+
+if (!navigator.bluetooth) setStatus('Web Bluetooth недоступний у цьому браузері.');
+else if (location.protocol === 'file:') {
+  console.warn("Сторінку відкрито як file:// — дозволи на стрічки НЕ зберігаються (file:// браузер вважає унікальним origin). Запусти через http://localhost або https.");
+  setStatus("⚠ Відкрито як file:// — автопідключення після перезапуску не працюватиме. Запусти через локальний сервер (http://localhost) або https.");
+}
+
+const NAME_PREFIXES = ['LEDBLE', 'ELK', 'MELK', 'Triones', 'LEDnet', 'KL-', 'MOHUAN', 'BLE-LED', 'QHM-', 'AP-'];
+
+// Підключається до одного BluetoothDevice, розпізнає профіль і додає в state.
+// Ідемпотентна: якщо стрічка вже відома — лише перепідключає й оновлює характеристику.
+// Повертає об'єкт стрічки або null (якщо профіль не підійшов).
+async function connectToDevice(device) {
+  let dev = state.devices.find(d => d.id === device.id);
+  const raw = dev ? dev.rawDevice : device;
+
+  // Слухач розриву чіпляємо лише раз на конкретний об'єкт пристрою.
+  if (!raw._hasDiscListener) {
+    raw.addEventListener('gattserverdisconnected', () => handleDisconnect(raw.id));
+    raw._hasDiscListener = true;
+  }
+
+  // Якщо вже під'єднано на рівні GATT — нічого не робимо повторно.
+  if (raw.gatt.connected && dev && dev.characteristic) {
+    dev.connected = true;
+    return dev;
+  }
+
+  const server = await raw.gatt.connect();
+  await new Promise(r => setTimeout(r, 400));
+
+  // Якщо профіль уже відомий — беремо його, інакше шукаємо.
+  let matched = dev ? dev.profile : null;
+  let chr = null;
+
+  if (matched) {
+    const svc = await server.getPrimaryService(matched.svc);
+    chr = await svc.getCharacteristic(matched.chr);
+  } else {
+    for (const p of PROFILES) {
+      try {
+        const svc = await server.getPrimaryService(p.svc);
+        chr = await svc.getCharacteristic(p.chr);
+        matched = p;
+        break;
+      } catch {}
+    }
+    if (!matched) {
+      try { await server.disconnect(); } catch {}
+      return null;
+    }
+  }
+
+  if (dev) {
+    dev.characteristic = chr;
+    dev.connected = true;
+  } else {
+    dev = {
+      id: raw.id,
+      rawDevice: raw,
+      characteristic: chr,
+      profile: matched,
+      name: raw.name || 'Стрічка',
+      connected: true,
+      isOn: true,
+      mode: 'static',
+      color: '#ffffff',
+      brightness: 100,
+      _lastR: -1,
+      _lastG: -1,
+      _lastB: -1
+    };
+    state.devices.push(dev);
+  }
+
+  await sendCmd(dev, getOnBytes(dev.profile.proto));
+  return dev;
+}
+
+// Розрив з'єднання: НЕ викидаємо стрічку одразу (дешеві стрічки часто
+// тимчасово відпадають, особливо коли відкривається вікно вибору пристрою).
+// Спершу пробуємо тихо перепідключитися кілька разів.
+const _reconnecting = new Set();
+async function handleDisconnect(id) {
+  const dev = state.devices.find(d => d.id === id);
+  if (!dev) return;
+  dev.connected = false;
+  if (_reconnecting.has(id)) return; // уже триває спроба
+  _reconnecting.add(id);
+
+  updateUI();
+
+  let ok = false;
+  for (let i = 1; i <= 4; i++) {
+    if (!state.devices.find(d => d.id === id)) break; // користувач вилучив вручну
+    setStatus(`«${dev.name}»: відновлюю з'єднання (спроба ${i}/4)…`);
+    try {
+      await connectToDevice(dev.rawDevice);
+      if (dev.rawDevice.gatt.connected) { ok = true; break; }
+    } catch {}
+    await new Promise(r => setTimeout(r, 700));
+  }
+
+  _reconnecting.delete(id);
+
+  if (ok) {
+    setStatus(`«${dev.name}» знову на зв'язку.`);
+  } else {
+    setStatus(`Не вдалося відновити «${dev.name}». Стрічку вилучено.`);
+    removeDevice(id);
+    return;
+  }
+  updateUI();
+}
+
+// Тихо підключається до всіх раніше дозволених стрічок (без вікна вибору).
+// Повертає { supported, found, connected } для точної діагностики.
+async function autoConnectKnown() {
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) {
+    return { supported: false, found: 0, connected: 0 };
+  }
+
+  let known = [];
+  try {
+    known = await navigator.bluetooth.getDevices();
+  } catch (e) {
+    console.warn('getDevices недоступний', e);
+    return { supported: false, found: 0, connected: 0 };
+  }
+
+  console.log(`getDevices(): браузер пам'ятає стрічок — ${known.length}`,
+              known.map(d => d.name || d.id));
+
+  let connected = 0;
+  for (const device of known) {
+    if (state.devices.find(d => d.id === device.id)) continue; // вже активна
+    const ok = await connectWithFallback(device);
+    if (ok) connected++;
+  }
+  return { supported: true, found: known.length, connected };
+}
+
+// Дві стратегії підключення до відомої стрічки:
+//  1) пряме gatt.connect() — миттєво працює в межах поточної сесії браузера;
+//  2) очікування рекламного пакета (watchAdvertisements) — потрібне після
+//     перезапуску браузера, коли прямий зв'язок ще не встановлений.
+async function connectWithFallback(device) {
+  // 1) Швидкий шлях.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const dev = await connectToDevice(device);
+      if (dev) return true;
+    } catch (e) {
+      console.warn(`«${device.name}» пряма спроба ${attempt}/2:`, e.message);
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+  // 2) Повільний шлях — слухаємо ефір.
+  return await connectViaAdvertisement(device, 6000);
+}
+
+// Чекає, поки стрічка з'явиться в ефірі, і одразу підключається — без вікна вибору.
+function connectViaAdvertisement(device, timeoutMs) {
+  if (!device.watchAdvertisements) return Promise.resolve(false);
+
+  setStatus(`Шукаю «${device.name || 'стрічку'}» поблизу…`);
+  const ctrl = new AbortController();
+
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = val => {
+      if (settled) return;
+      settled = true;
+      try { device.removeEventListener('advertisementreceived', onAdv); } catch {}
+      try { ctrl.abort(); } catch {}
+      resolve(val);
+    };
+
+    const onAdv = async () => {
+      if (settled) return;
+      try { ctrl.abort(); } catch {} // зупиняємо сканування перед підключенням
+      try {
+        const dev = await connectToDevice(device);
+        finish(!!dev);
+      } catch (e) {
+        console.warn('Підключення після реклами не вдалось:', e.message);
+        finish(false);
+      }
+    };
+
+    device.addEventListener('advertisementreceived', onAdv);
+    device.watchAdvertisements({ signal: ctrl.signal }).catch(e => {
+      console.warn('watchAdvertisements не запустився:', e.message);
+      finish(false);
+    });
+
+    setTimeout(() => finish(false), timeoutMs);
+  });
+}
+
+bindBtn(ui.btnConn, async () => {
+  // Вкладка конкретної стрічки → кнопка від'єднує її.
+  if (state.activeTab !== 'all') {
+    const target = state.devices.find(d => d.id === state.activeTab);
+    removeDevice(state.activeTab); // прибираємо зі стану ДО розриву, щоб не запустити перепідключення
+    if (target && target.rawDevice.gatt.connected) {
+      try { target.rawDevice.gatt.disconnect(); } catch {}
+    }
+    return;
+  }
+
+  // 1) Спершу — тихе автопідключення до всіх раніше дозволених стрічок.
+  setStatus('Підключаю збережені стрічки…');
+  const res = await autoConnectKnown();
+
+  if (res.connected > 0) {
+    pickActiveTab();
+    setStatus(`Підключено стрічок: ${state.devices.length}. Активні всі збережені.`);
+    updateUI();
+    return;
+  }
+
+  // 2) Якщо нових збережених немає, але вже є підключені — повідомляємо.
+  if (state.devices.length > 0) {
+    setStatus(`Усі збережені стрічки вже підключені (${state.devices.length}). Щоб додати нову — вибери її у вікні.`);
+  } else if (!res.supported) {
+    // getDevices() недоступний у цьому браузері/без прапорця.
+    setStatus("Браузер не підтримує тихе перепідключення (getDevices). Вибери стрічку у вікні. Підказка: увімкни прапорець у chrome://flags/#enable-web-bluetooth-new-permissions-backend і перезапусти Chrome.");
+  } else if (res.found === 0) {
+    // Дозвіл, найімовірніше, надано ДО ввімкнення прапорця — браузер його «не бачить».
+    setStatus("Браузер не пам'ятає жодної стрічки. Підключи її у вікні ще раз (старий дозвіл не переноситься у новий механізм). Після цього вона підключатиметься сама.");
+  } else {
+    // Стрічки відомі, але жодна не відповіла (вимкнена / поза зоною / немає watchAdvertisements).
+    const advNote = (typeof BluetoothDevice !== 'undefined' &&
+                     BluetoothDevice.prototype.watchAdvertisements)
+      ? ''
+      : " Для тихого перепідключення після перезапуску браузера увімкни ще прапорець chrome://flags/#enable-experimental-web-platform-features.";
+    setStatus(`Знаю стрічок: ${res.found}, але жодна не відповіла (можливо, вимкнена або поза зоною).${advNote} Спробуй обрати у вікні…`);
+  }
+
+  // 3) Додавання нової стрічки — тут вікно вибору обов'язкове (вимога браузера).
+  try {
+    const device = await navigator.bluetooth.requestDevice({
+      filters: NAME_PREFIXES.map(prefix => ({ namePrefix: prefix })),
+      optionalServices: SERVICE_UUIDS,
+    });
+
+    const already = state.devices.find(d => d.id === device.id);
+    setStatus(`Підключення до ${device.name || 'пристрою'}…`);
+    const dev = await connectToDevice(device);
+
+    if (!dev) {
+      setStatus('Профіль стрічки не розпізнано.');
+      return;
+    }
+
+    state.activeTab = dev.id; // показуємо вкладку щойно доданої стрічки
+    setStatus(already
+      ? `«${dev.name}» перепідключено.`
+      : `Додано: ${dev.name}. Наступного разу підключиться автоматично.`);
+    updateUI();
+
+  } catch (e) {
+    if (e.name !== 'NotFoundError') setStatus('Помилка: ' + e.message);
+    else setStatus('Готово. Вибір скасовано.');
+  }
+});
+
+function removeDevice(id) {
+  state.devices = state.devices.filter(d => d.id !== id);
+  if (state.activeTab === id) state.activeTab = 'all';
+  setStatus('Стрічку від\'єднано.');
+  updateUI();
+}
+
+function getOnBytes(proto) { return proto === '7E' ? [0x7E,0x00,0x04,0x01,0x00,0x00,0xFF,0x00,0xEF] : [0xCC,0x23,0x33]; }
+function getOffBytes(proto){ return proto === '7E' ? [0x7E,0x00,0x04,0x00,0x00,0x00,0xFF,0x00,0xEF] : [0xCC,0x24,0x33]; }
+function getRgbBytes(proto, r, g, b) { return proto === '7E' ? [0x7E,0x00,0x05,0x03,r,g,b,0x00,0xEF] : [0x56,r,g,b,0x00,0xF0,0xAA]; }
+function getBrightBytes(proto, pct) { return proto === '7E' ? [0x7E,0x00,0x01,pct,0x00,0x00,0x00,0x00,0xEF] : null; }
+
+async function sendCmd(dev, bytes) {
+  if (!dev.characteristic || !bytes) return;
+  try { await dev.characteristic.writeValueWithoutResponse(new Uint8Array(bytes)); }
+  catch(e) { console.warn('Помилка запису', e); }
+}
+
+function hexToRgb(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return { r: 255, g: 255, b: 255 };
+  const v = parseInt(m[1], 16);
+  return { r: (v >> 16) & 0xFF, g: (v >> 8) & 0xFF, b: v & 0xFF };
+}
+
+bindBtn(ui.btnPwr, () => {
+  const targets = getTargetDevices();
+  const turnOn = targets.some(d => !d.isOn);
+  targets.forEach(d => {
+    d.isOn = turnOn;
+    sendCmd(d, turnOn ? getOnBytes(d.profile.proto) : getOffBytes(d.profile.proto));
+  });
+  updateUI();
+});
+
+function applyColorToTargets(hex) {
+  if (state.activeTab === 'all') state.globalColor = hex;
+  const { r, g, b } = hexToRgb(hex);
+  
+  getTargetDevices().forEach(d => {
+    if (d.mode !== 'music') d.mode = 'static'; 
+    d.color = hex;
+    if (d.mode === 'static') {
+      d._lastR = r; d._lastG = g; d._lastB = b;
+      sendCmd(d, getRgbBytes(d.profile.proto, r, g, b));
+    }
+  });
+  updateUI();
+}
+
+function applyBrightnessToTargets(pct) {
+  if (state.activeTab === 'all') state.globalBrightness = pct;
+  
+  getTargetDevices().forEach(d => {
+    d.brightness = pct;
+    
+    if (d.mode === 'static') {
+      if (d.profile.proto === '7E') {
+        sendCmd(d, getBrightBytes('7E', pct));
+      } else {
+        const { r, g, b } = hexToRgb(d.color);
+        let sr = Math.round(r * pct / 100);
+        let sg = Math.round(g * pct / 100);
+        let sb = Math.round(b * pct / 100);
+        
+        if (pct > 0) {
+          if (r > 0 && sr === 0) sr = 1;
+          if (g > 0 && sg === 0) sg = 1;
+          if (b > 0 && sb === 0) sb = 1;
+        }
+        
+        d._lastR = sr; d._lastG = sg; d._lastB = sb;
+        sendCmd(d, getRgbBytes('56', sr, sg, sb));
+      }
+    }
+  });
+}
+
+// ============================================================================
+//  СИСТЕМНЕ АУДІО (Звукова карта)
+// ============================================================================
+async function initSystemAudio() {
+  // Якщо контекст уже створений — переконуємось, що він «прокинутий»
+  if (audioCtx) {
+    if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch {} }
+    return true;
+  }
+
+  try {
+    setStatus("У вікні вибери вкладку/екран та ОБОВ'ЯЗКОВО постав галочку «Поділитися аудіо / Share audio»!");
+
+    // getDisplayMedia вимагає video, тож просимо і відео, і звук, але без обробки звуку.
+    micStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+
+    // Відео нам не потрібне — одразу зупиняємо, лишаємо тільки аудіодоріжку.
+    micStream.getVideoTracks().forEach(t => t.stop());
+
+    const audioTracks = micStream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      setStatus("Аудіо не знайдено! Схоже, не стояла галочка «Поділитися аудіо».");
+      micStream.getTracks().forEach(t => t.stop());
+      micStream = null;
+      return false;
+    }
+
+    // Якщо користувач натисне «Зупинити доступ» у плашці браузера
+    audioTracks[0].addEventListener('ended', onAudioTrackEnded);
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // ВАЖЛИВО: контекст часто стартує у стані "suspended" → тиша на аналізаторі.
+    if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch {} }
+
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;             // компроміс: достатня роздільність по частоті + швидка реакція
+    analyser.smoothingTimeConstant = 0;  // згладжування робимо самі (через огинаючу)
+
+    audioSource = audioCtx.createMediaStreamSource(micStream);
+    audioSource.connect(analyser);
+
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+
+    // Обчислюємо, які біни спектра відповідають басу та високим частотам.
+    const binHz = audioCtx.sampleRate / analyser.fftSize; // ширина одного біна в Гц
+    BASS_LO = Math.max(1, Math.round(30 / binHz));         // ≈30 Гц (пропускаємо DC-бін 0)
+    BASS_HI = Math.round(170 / binHz);                     // ≈170 Гц — бочка/бас
+    HIGH_LO = Math.round(2000 / binHz);                    // ≈2 кГц
+    HIGH_HI = Math.min(analyser.frequencyBinCount - 1, Math.round(9000 / binHz)); // ≈9 кГц — снейр/хет
+
+    agcMax = 0.15;
+
+    setStatus("Світломузика підключена! Вмикай музику.");
+    return true;
+  } catch (err) {
+    setStatus("Доступ до системного аудіо скасовано або сталася помилка.");
+    console.error(err);
+    return false;
+  }
+}
+
+// Звільняє аудіоресурси БЕЗ зміни режимів стрічок.
+function releaseAudio() {
+  try { if (audioSource) audioSource.disconnect(); } catch {}
+  try { if (micStream) micStream.getTracks().forEach(t => t.stop()); } catch {}
+  try { if (audioCtx) audioCtx.close(); } catch {}
+  audioCtx = null; analyser = null; freqData = null;
+  micStream = null; audioSource = null;
+  agcMax = 0.15;
+}
+
+// Викликається, коли користувач сам зупинив доступ через плашку браузера.
+function onAudioTrackEnded() {
+  releaseAudio();
+  let changed = false;
+  state.devices.forEach(d => {
+    if (d.mode === 'music') {
+      d.mode = 'static';
+      const { r, g, b } = hexToRgb(d.color);
+      d._lastR = r; d._lastG = g; d._lastB = b;
+      sendCmd(d, getRgbBytes(d.profile.proto, r, g, b));
+      changed = true;
+    }
+  });
+  if (changed) {
+    setStatus("Світломузику зупинено (доступ до аудіо завершено).");
+    updateUI();
+  }
+}
+
+async function applyModeToTargets(modeName) {
+  if (modeName === 'music') {
+    const audioReady = await initSystemAudio();
+    if (!audioReady) return; 
+  }
+
+  getTargetDevices().forEach(d => {
+    d.mode = modeName;
+    d.isOn = true;
+  });
+
+  // Якщо світломузику більше не використовує жодна стрічка — звільняємо аудіо.
+  if (modeName !== 'music' && audioCtx && !state.devices.some(d => d.mode === 'music')) {
+    releaseAudio();
+  }
+
+  if (modeName === 'static') {
+    // Явно вмикаємо статичний колір (надсилає RGB і оновлює UI всередині).
+    applyColorToTargets(ui.colorPicker.value);
+    return;
+  }
+
+  updateUI();
+  startGlobalModeLoop();
+}
+
+ui.colorPicker.addEventListener('input', e => applyColorToTargets(e.target.value));
+
+let brightTimeout;
+function handleBrightChange(val) {
+  let pct = parseInt(val, 10);
+  if (isNaN(pct)) pct = 100;
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  
+  if (ui.brightRange.value != pct) ui.brightRange.value = pct;
+  if (ui.brightInput.value != pct) ui.brightInput.value = pct;
+  
+  if (brightTimeout) clearTimeout(brightTimeout);
+  brightTimeout = setTimeout(() => applyBrightnessToTargets(pct), 20);
+}
+
+ui.brightRange.addEventListener('input', e => handleBrightChange(e.target.value));
+ui.brightInput.addEventListener('input', e => handleBrightChange(e.target.value));
+
+// --- Швидкість ефектів ---
+// effectSpeed (1..100) → множник фази. Фаза накопичується, тож зміна швидкості
+// НЕ викликає стрибків кольору — ефект просто пришвидшується/сповільнюється плавно.
+function handleSpeedChange(val) {
+  let pct = parseInt(val, 10);
+  if (isNaN(pct)) pct = 50;
+  if (pct < 1) pct = 1;
+  if (pct > 100) pct = 100;
+
+  if (ui.speedRange.value != pct) ui.speedRange.value = pct;
+  if (ui.speedInput.value != pct) ui.speedInput.value = pct;
+
+  effectSpeed = pct;
+}
+
+ui.speedRange.addEventListener('input', e => handleSpeedChange(e.target.value));
+ui.speedInput.addEventListener('input', e => handleSpeedChange(e.target.value));
+
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('disabled')) return;
+    applyModeToTargets(btn.dataset.mode);
+  });
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+
+  const key = e.key;
+  let currentPct = parseInt(ui.brightInput.value, 10);
+  if (isNaN(currentPct)) currentPct = 100;
+
+  if (key === 'ArrowUp') {
+    e.preventDefault(); 
+    handleBrightChange(currentPct + 1);
+  } else if (key === 'ArrowDown') {
+    e.preventDefault();
+    handleBrightChange(currentPct - 1);
+  } else if (key >= '0' && key <= '9') {
+    const pct = key === '0' ? 0 : parseInt(key, 10) * 10;
+    handleBrightChange(pct);
+  }
+});
+
+// ============================================================================
+//  ФОНОВИЙ ДВИГУН РЕЖИМІВ (Web Worker)
+// ============================================================================
+let modeEngineRunning = false;
+let effectPhase = 0;   // накопичувальна фаза ефектів (зростає на effectSpeed/50 за тік)
+let effectSpeed = 50;  // 1..100 — поточна швидкість з повзунка
+
+const workerBlob = new Blob([`
+  self.onmessage = function(e) {
+    setTimeout(() => self.postMessage('tick'), e.data);
+  }
+`], { type: 'application/javascript' });
+const timerWorker = new Worker(URL.createObjectURL(workerBlob));
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return { r: Math.round(255 * f(0)), g: Math.round(255 * f(8)), b: Math.round(255 * f(4)) };
+}
+
+// Відтінок (0..360) обраного кольору — потрібен для «дрейфу відтінку».
+function hexToHue(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn), d = max - min;
+  if (d === 0) return 0;
+  let h;
+  if (max === rn) h = ((gn - bn) / d) % 6;
+  else if (max === gn) h = (bn - rn) / d + 2;
+  else h = (rn - gn) / d + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+
+// Колір ефекту за поточною фазою. Швидкість керується через накопичення фази,
+// тож тут лише фіксовані коефіцієнти «характеру» кожного ефекту.
+function calcModeColor(mode, phase, baseHex) {
+  switch(mode) {
+    // Плавна веселка — повний прохід спектром.
+    case 'rainbow_fade': return hslToRgb((phase * 1.5) % 360, 100, 50);
+
+    // Повільний дрейф відтінку — плавання навколо ОБРАНОГО кольору (±28°).
+    case 'hue_drift': {
+      const baseHue = hexToHue(baseHex);
+      return hslToRgb((baseHue + Math.sin(phase * 0.03) * 28 + 360) % 360, 100, 50);
+    }
+
+    // Океан — переливи в синьо-бірюзовій зоні.
+    case 'ocean': return hslToRgb(180 + Math.sin(phase * 0.05) * 40, 100, 50);
+
+    // Аврора — повільні переходи зелений↔бірюза↔фіолетовий, з «диханням» яскравості тону.
+    case 'aurora': {
+      const h = 200 + Math.sin(phase * 0.025) * 80;       // ~120..280
+      const l = 45 + Math.sin(phase * 0.04) * 12;          // легке мерехтіння світлоти
+      return hslToRgb((h + 360) % 360, 100, l);
+    }
+
+    // Дихання — колір сталий (обраний), пульсує лише яскравість (модулюється у двигуні).
+    case 'breathing': return hexToRgb(baseHex);
+
+    case 'fire': return hslToRgb(Math.random() * 40, 100, 20 + Math.random() * 30);
+
+    case 'rgb_jump': {
+      const c1 = [[255,0,0], [0,255,0], [0,0,255]];
+      const j = c1[Math.floor(phase / 10) % 3];
+      return { r: j[0], g: j[1], b: j[2] };
+    }
+    case 'rainbow_jump': {
+      const c2 = [[255,0,0], [255,127,0], [255,255,0], [0,255,0], [0,255,255], [0,0,255], [139,0,255]];
+      const rj = c2[Math.floor(phase / 10) % 7];
+      return { r: rj[0], g: rj[1], b: rj[2] };
+    }
+    case 'police': {
+      const p = [[255,0,0], [0,0,255]];
+      const pc = p[Math.floor(phase / 4) % 2];
+      return { r: pc[0], g: pc[1], b: pc[2] };
+    }
+    case 'strobe': {
+      const s = Math.floor(phase / 2.5) % 2 === 0 ? 255 : 0;
+      return { r: s, g: s, b: s };
+    }
+
+    case 'music': return hexToRgb(baseHex); // колір сталий, пульсує лише яскравість
+  }
+  return { r: 255, g: 255, b: 255 };
+}
+
+// Множник яскравості ефекту (для «Дихання»). Для решти режимів = 1.
+function calcModeBrightness(mode, phase) {
+  if (mode === 'breathing') {
+    // плавне «дихання» від 12% до 100%
+    return 0.12 + ((Math.sin(phase * 0.05) + 1) / 2) * 0.88;
+  }
+  return 1;
+}
+
+timerWorker.onmessage = async () => {
+  if (!modeEngineRunning) return;
+  
+  if (!state.devices.some(d => d.mode && d.mode !== 'static')) {
+    modeEngineRunning = false;
+    return;
+  }
+  
+  // Фаза ефектів зростає на множник швидкості (effectSpeed=50 → ×1, як було раніше).
+  // Накопичення фази робить зміну швидкості плавною, без стрибків кольору.
+  effectPhase += effectSpeed / 50;
+  const isMusicMode = state.devices.some(d => d.mode === 'music');
+  let audioVol = 1;
+  
+  // ---- Світломузика: пряме слідування за звуком (без затухання) ----
+  // Яскравість стрічки = поточна гучність звуку. Є звук (удар, голос, будь-що) → світло,
+  // зник звук → стрічка ОДРАЗУ гасне. Жодного штучного хвоста згасання.
+  if (analyser && isMusicMode && freqData) {
+    analyser.getByteFrequencyData(freqData);
+
+    // Загальна енергія по всьому спектру (бас + середні/голос + високі).
+    let sum = 0;
+    for (let i = BASS_LO; i <= HIGH_HI; i++) sum += freqData[i];
+    const energy = sum / ((HIGH_HI - BASS_LO + 1) * 255); // 0..1
+
+    const SILENCE = 0.02; // поріг «тиша / пауза»
+
+    if (energy < SILENCE) {
+      // Тиша між ударами / пауза — стрічка вимкнена.
+      audioVol = 0;
+      agcMax = Math.max(0.05, agcMax * 0.999);
+    } else {
+      // Авто-нормалізація: найгучніше за останні ~30 сек = 100%.
+      // Тому тихий звук = темно, гучний/удар = яскраво, незалежно від рівня гучності системи.
+      agcMax = Math.max(energy, agcMax * 0.999);
+      if (agcMax < 0.05) agcMax = 0.05;
+
+      let norm = energy / agcMax;     // 0..1, поточна гучність відносно максимуму
+      if (norm > 1) norm = 1;
+      norm = Math.pow(norm, 1.8);     // контраст: удари різкі, тихі звуки тьмяні
+
+      // ПРЯМЕ значення без згасання: світло точно повторює звук.
+      audioVol = norm;
+    }
+  }
+
+  const promises = state.devices.map(async d => {
+    if (!d.mode || d.mode === 'static' || !d.isOn) return;
+    
+    const c = calcModeColor(d.mode, effectPhase, d.color);
+    let bScale = d.brightness / 100;
+
+    bScale *= calcModeBrightness(d.mode, effectPhase); // «Дихання» модулює яскравість
+
+    if (d.mode === 'music') bScale *= audioVol;
+    
+    let sr = Math.round(c.r * bScale);
+    let sg = Math.round(c.g * bScale);
+    let sb = Math.round(c.b * bScale);
+    
+    if (d.brightness > 0 && bScale > 0) {
+      if (c.r > 0 && sr === 0) sr = 1;
+      if (c.g > 0 && sg === 0) sg = 1;
+      if (c.b > 0 && sb === 0) sb = 1;
+    }
+    
+    if (d.brightness === 0 || (d.mode === 'music' && audioVol === 0)) { sr=0; sg=0; sb=0; }
+    
+    if (d._lastR !== sr || d._lastG !== sg || d._lastB !== sb) {
+      d._lastR = sr;
+      d._lastG = sg;
+      d._lastB = sb;
+      await sendCmd(d, getRgbBytes(d.profile.proto, sr, sg, sb));
+    }
+  });
+  
+  await Promise.allSettled(promises);
+  
+  if (modeEngineRunning) {
+    // ~40 мс між кадрами. Це «золота середина» для Bluetooth LE:
+    // швидше — і дешеві стрічки не встигають, кадри накопичуються і виникає лаг.
+    timerWorker.postMessage(40);
+  }
+};
+
+function startGlobalModeLoop() {
+  if (modeEngineRunning) return;
+  modeEngineRunning = true;
+  effectPhase = 0;
+  timerWorker.postMessage(0);
+}
+
+// Якщо стрічка одна — показуємо її вкладку (кнопка стає «Від'єднатися»),
+// якщо кілька — лишаємось на «Всі стрічки».
+function pickActiveTab() {
+  state.activeTab = state.devices.length === 1 ? state.devices[0].id : 'all';
+}
+
+// При відкритті сторінки — автоматично підключаємось до всіх раніше дозволених стрічок.
+window.addEventListener('load', async () => {
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+  const res = await autoConnectKnown();
+  if (res.connected > 0) {
+    pickActiveTab();
+    setStatus(`Автоматично підключено стрічок: ${res.connected}.`);
+    updateUI();
+  }
+});
+
+</script>
+</body>
+</html>
