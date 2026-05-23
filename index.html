@@ -165,17 +165,25 @@
   .palette .sw:active { transform: scale(0.9); }
   .palette .sw.disabled { cursor: not-allowed; opacity: 0.2; }
 
-  /* Власний колір як 8-а комірка палітри */
-  .palette .custom-color {
-    width: 100%;
-    height: auto;
+  /* Власний колір як 8-а комірка палітри (div-обгортка + прихований інпут усередині) */
+  .palette .custom-cell {
     aspect-ratio: 1;
     border: 2px solid var(--surface-hover);
     border-radius: 4px;
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
+    overflow: hidden;
+    position: relative;
   }
-  .palette .custom-color::-webkit-color-swatch { border-radius: 2px; }
-  .palette .custom-color::-moz-color-swatch { border-radius: 2px; }
+  .palette .custom-cell.disabled { cursor: not-allowed; opacity: 0.2; }
+  .palette .custom-color {
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 2px;
+    pointer-events: none; /* кліки ловить обгортка */
+  }
+  .palette .custom-color::-webkit-color-swatch { border-radius: 2px; border: none; }
+  .palette .custom-color::-moz-color-swatch { border-radius: 2px; border: none; }
 
   input[type="color"] {
     border: none;
@@ -242,7 +250,7 @@
     color: var(--text);
     padding: 0 5px; 
     border-radius: 6px;
-    font-size: clamp(9px, 1.6vh, 13px); 
+    font-size: clamp(11px, 1.9vh, 15px); 
     text-align: center;
     cursor: pointer;
     user-select: none;
@@ -263,18 +271,25 @@
     color: var(--active-text);
   }
   .mode-btn.disabled { opacity: 0.3; cursor: not-allowed; }
+  /* видима рамка при навігації з клавіатури (Tab) */
+  .mode-btn:focus-visible,
+  .palette .sw:focus-visible,
+  .palette .custom-cell:focus-visible {
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+  }
 
 </style>
 </head>
 <body>
 
 <div class="container">
-  <h1>BLE LED — керування</h1>
+  <h1 aria-hidden="true">BLE LED — керування</h1>
 
   <div id="status" class="status">Очікування... Натисни «Підключити стрічку».</div>
 
-  <div id="tabs" class="tabs">
-    <div class="tab active" data-id="all">Всі стрічки</div>
+  <div id="tabs" class="tabs" role="tablist" aria-label="Вибір стрічки">
+    <div class="tab active" data-id="all" tabindex="0" role="tab" aria-selected="true">Всі стрічки</div>
   </div>
 
   <div class="row">
@@ -292,7 +307,7 @@
     <h2>Яскравість (Крок 1%, ↑/↓)</h2>
     <div class="slider-row">
       <input type="range" id="brightRange" min="0" max="100" value="100" disabled aria-label="Яскравість">
-      <input type="number" id="brightInput" class="num-input" min="0" max="100" value="100" disabled aria-label="Яскравість у відсотках">
+      <input type="text" inputmode="numeric" id="brightInput" class="num-input" value="100" disabled aria-label="Яскравість у відсотках">
       <span style="color:var(--muted); font-size:14px">%</span>
     </div>
   </div>
@@ -301,7 +316,7 @@
     <h2>Швидкість ефектів</h2>
     <div class="slider-row">
       <input type="range" id="speedRange" min="1" max="100" value="50" disabled aria-label="Швидкість ефектів">
-      <input type="number" id="speedInput" class="num-input" min="1" max="100" value="50" disabled aria-label="Швидкість ефектів у відсотках">
+      <input type="text" inputmode="numeric" id="speedInput" class="num-input" value="50" disabled aria-label="Швидкість ефектів у відсотках">
       <span style="color:var(--muted); font-size:14px">%</span>
     </div>
   </div>
@@ -391,14 +406,34 @@ function esc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// Реєстр дій: елемент -> обробник. Кліки ловимо делеговано на document.
+// Позначаємо елемент КЛАСОМ (класи рідер не озвучує) — не data-атрибутом.
+const _actions = new WeakMap();
+
 function bindBtn(el, handler) {
-  el.addEventListener('click', () => { if (!el.classList.contains('disabled')) handler(); });
-  el.addEventListener('keydown', e => {
-    if (!el.classList.contains('disabled') && (e.key === 'Enter' || e.key === ' ')) {
-      e.preventDefault(); handler();
-    }
-  });
+  _actions.set(el, handler);
+  el.classList.add('js-act');
 }
+
+// Один глобальний слухач кліку для всіх інтерактивних елементів.
+document.addEventListener('click', e => {
+  const el = e.target.closest('.js-act');
+  if (!el || el.classList.contains('disabled')) return;
+  const h = _actions.get(el);
+  if (h) h();
+});
+
+// Один глобальний слухач клавіатури (Enter / Пробіл) для фокусованих елементів.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = document.activeElement;
+  if (!el || !el.classList || !el.classList.contains('js-act')) return;
+  if (el.classList.contains('disabled')) return;
+  if (el.tagName === 'INPUT') return;
+  e.preventDefault();
+  const h = _actions.get(el);
+  if (h) h();
+});
 
 function getTargetDevices() {
   if (state.activeTab === 'all') return state.devices;
@@ -418,45 +453,53 @@ PALETTE_COLORS.forEach(({ hex, name }) => {
   const sw = document.createElement('div');
   sw.className = 'sw disabled';
   sw.style.background = hex;
-  // Доступність: скрін-рідер озвучить назву кольору при наведенні/фокусі.
+  // Доступність: рідер озвучить лише назву кольору; «клікабельний» не вимовляється.
   sw.title = name;
-  sw.setAttribute('role', 'button');
   sw.setAttribute('aria-label', name);
   sw.setAttribute('tabindex', '0');
-  const choose = () => {
-    if (sw.classList.contains('disabled')) return;
+  bindBtn(sw, () => {
     ui.colorPicker.value = hex;
     applyColorToTargets(hex);
-  };
-  sw.addEventListener('click', choose);
-  sw.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); }
   });
   ui.palette.appendChild(sw);
 });
 
-// 8-а комірка палітри — «Власний колір» (перенесений сюди кольоровий інпут).
+// 8-а комірка палітри — «Власний колір».
+// Нативний <input type=color> ховаємо від рідера (він озвучується як «клікабельний»),
+// а зверху кладемо звичайний div-свотч, який відкриває цей інпут кліком.
 ui.colorPicker.hidden = false;
-ui.colorPicker.classList.add('sw', 'custom-color', 'disabled');
-ui.colorPicker.setAttribute('aria-label', 'Власний колір');
-ui.colorPicker.title = 'Власний колір';
-ui.palette.appendChild(ui.colorPicker);
+ui.colorPicker.classList.add('custom-color');
+ui.colorPicker.setAttribute('aria-hidden', 'true');
+ui.colorPicker.setAttribute('tabindex', '-1');
+ui.colorPicker.title = '';
+
+const customCell = document.createElement('div');
+customCell.className = 'sw custom-cell disabled';
+customCell.title = 'Власний колір';
+customCell.setAttribute('aria-label', 'Власний колір');
+customCell.setAttribute('tabindex', '0');
+customCell.appendChild(ui.colorPicker); // інпут усередині свотча
+bindBtn(customCell, () => {
+  if (customCell.classList.contains('disabled')) return;
+  ui.colorPicker.click(); // відкриває системну палітру
+});
+ui.palette.appendChild(customCell);
 
 function updateUI() {
   const targets = getTargetDevices();
   const hasTargets = targets.length > 0;
 
-  let tabsHtml = `<div class="tab ${state.activeTab === 'all' ? 'active' : ''}" data-id="all">Всі стрічки</div>`;
+  const allSel = state.activeTab === 'all';
+  let tabsHtml = `<div class="tab ${allSel ? 'active' : ''}" data-id="all" tabindex="0" role="tab" aria-selected="${allSel}">Всі стрічки</div>`;
   state.devices.forEach(d => {
-    tabsHtml += `<div class="tab ${state.activeTab === d.id ? 'active' : ''}" data-id="${esc(d.id)}">${esc(d.name)}</div>`;
+    const sel = state.activeTab === d.id;
+    tabsHtml += `<div class="tab ${sel ? 'active' : ''}" data-id="${esc(d.id)}" tabindex="0" role="tab" aria-selected="${sel}">${esc(d.name)}</div>`;
   });
   ui.tabs.innerHTML = tabsHtml;
 
-  document.querySelectorAll('.tab').forEach(t => {
-    t.addEventListener('click', () => {
-      state.activeTab = t.dataset.id;
-      updateUI();
-    });
+  // Навішуємо дію делеговано (js-act), без onclick на елементах і без зайвого aria.
+  ui.tabs.querySelectorAll('.tab').forEach(t => {
+    bindBtn(t, () => { state.activeTab = t.dataset.id; updateUI(); });
   });
 
   ui.btnConn.textContent = state.activeTab === 'all' ? 'Підключити стрічку' : "Від'єднатися";
@@ -1012,10 +1055,9 @@ ui.speedRange.addEventListener('input', e => handleSpeedChange(e.target.value));
 ui.speedInput.addEventListener('input', e => handleSpeedChange(e.target.value));
 
 document.querySelectorAll('.mode-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (btn.classList.contains('disabled')) return;
-    applyModeToTargets(btn.dataset.mode);
-  });
+  // Доступність: фокус із клавіатури; рідер читає видимий текст кнопки.
+  btn.setAttribute('tabindex', '0');
+  bindBtn(btn, () => applyModeToTargets(btn.dataset.mode));
 });
 
 document.addEventListener('keydown', e => {
